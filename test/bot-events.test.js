@@ -1,45 +1,47 @@
-/* jshint expr: true */
-var chai = require('chai');
-var sinonChai = require('sinon-chai');
-var sinon = require('sinon');
-var rewire = require('rewire');
-var irc = require('irc');
-var logger = require('winston');
-var Bot = rewire('../lib/bot');
-var SlackStub = require('./stubs/slack-stub');
-var ChannelStub = require('./stubs/channel-stub');
-var ClientStub = require('./stubs/irc-client-stub');
-var config = require('./fixtures/single-test-config.json');
+/* eslint-disable prefer-arrow-callback, no-unused-expressions */
+import chai from 'chai';
+import sinonChai from 'sinon-chai';
+import sinon from 'sinon';
+import irc from 'irc';
+import logger from 'winston';
+import Bot from '../lib/bot';
+import SlackStub from './stubs/slack-stub';
+import ChannelStub from './stubs/channel-stub';
+import ClientStub from './stubs/irc-client-stub';
+import config from './fixtures/single-test-config.json';
 
 chai.should();
 chai.use(sinonChai);
 
 describe('Bot Events', function() {
-  before(function() {
-    this.infoSpy = sinon.spy(logger, 'info');
-    this.debugSpy = sinon.spy(logger, 'debug');
-    this.errorSpy = sinon.spy(logger, 'error');
-    irc.Client = ClientStub;
-    Bot.__set__('Slack', SlackStub);
-    Bot.prototype.sendToIRC = sinon.stub();
-    Bot.prototype.sendToSlack = sinon.stub();
+  const sandbox = sinon.sandbox.create({
+    useFakeTimers: false,
+    useFakeServer: false
+  });
+
+  beforeEach(function() {
+    this.infoStub = sandbox.stub(logger, 'info');
+    this.debugStub = sandbox.stub(logger, 'debug');
+    this.errorStub = sandbox.stub(logger, 'error');
+    sandbox.stub(irc, 'Client', ClientStub);
+    SlackStub.prototype.login = sandbox.stub();
+    ClientStub.prototype.send = sandbox.stub();
+    ClientStub.prototype.join = sandbox.stub();
     this.bot = new Bot(config);
+    this.bot.sendToIRC = sandbox.stub();
+    this.bot.sendToSlack = sandbox.stub();
+    this.bot.slack = new SlackStub();
     this.bot.connect();
   });
 
   afterEach(function() {
-    Bot.prototype.sendToIRC.reset();
-    Bot.prototype.sendToSlack.reset();
-    ClientStub.prototype.send.reset();
-    ClientStub.prototype.join.reset();
-    this.infoSpy.reset();
-    this.debugSpy.reset();
-    this.errorSpy.reset();
+    sandbox.restore();
+    ChannelStub.prototype.postMessage.reset();
   });
 
   it('should log on slack open event', function() {
     this.bot.slack.emit('open');
-    this.debugSpy.should.have.been.calledWithExactly('Connected to Slack');
+    this.debugStub.should.have.been.calledWithExactly('Connected to Slack');
   });
 
   it('should try to send autoSendCommands on registered IRC event', function() {
@@ -50,94 +52,96 @@ describe('Bot Events', function() {
   });
 
   it('should error log on error events', function() {
-    var slackError = new Error('slack');
-    var ircError = new Error('irc');
+    const slackError = new Error('slack');
+    const ircError = new Error('irc');
     this.bot.slack.emit('error', slackError);
     this.bot.ircClient.emit('error', ircError);
-    this.errorSpy.getCall(0).args[0].should.equal('Received error event from Slack');
-    this.errorSpy.getCall(0).args[1].should.equal(slackError);
-    this.errorSpy.getCall(1).args[0].should.equal('Received error event from IRC');
-    this.errorSpy.getCall(1).args[1].should.equal(ircError);
+    this.errorStub.getCall(0).args[0].should.equal('Received error event from Slack');
+    this.errorStub.getCall(0).args[1].should.equal(slackError);
+    this.errorStub.getCall(1).args[0].should.equal('Received error event from IRC');
+    this.errorStub.getCall(1).args[1].should.equal(ircError);
   });
 
   it('should send messages to irc if correct', function() {
-    var message = {
+    const message = {
       type: 'message'
     };
     this.bot.slack.emit('message', message);
-    Bot.prototype.sendToIRC.should.have.been.calledWithExactly(message);
+    this.bot.sendToIRC.should.have.been.calledWithExactly(message);
   });
 
   it('should not send messages to irc if the type isn\'t message', function() {
-    var message = {
+    const message = {
       type: 'notmessage'
     };
     this.bot.slack.emit('message', message);
-    Bot.prototype.sendToIRC.should.have.not.have.been.called;
+    this.bot.sendToIRC.should.have.not.have.been.called;
   });
 
   it('should not send messages to irc if it has an invalid subtype', function() {
-    var message = {
+    const message = {
       type: 'message',
       subtype: 'bot_message'
     };
     this.bot.slack.emit('message', message);
-    Bot.prototype.sendToIRC.should.have.not.have.been.called;
+    this.bot.sendToIRC.should.have.not.have.been.called;
   });
 
   it('should send messages to slack', function() {
-    var channel = '#channel';
-    var author = 'user';
-    var text = 'hi';
+    const channel = '#channel';
+    const author = 'user';
+    const text = 'hi';
     this.bot.ircClient.emit('message', author, channel, text);
-    Bot.prototype.sendToSlack.should.have.been.calledWithExactly(author, channel, text);
+    this.bot.sendToSlack.should.have.been.calledWithExactly(author, channel, text);
   });
 
   it('should send notices to slack', function() {
-    var channel = '#channel';
-    var author = 'user';
-    var text = 'hi';
-    var formattedText = '*' + text + '*';
+    const channel = '#channel';
+    const author = 'user';
+    const text = 'hi';
+    const formattedText = `*${text}*`;
     this.bot.ircClient.emit('notice', author, channel, text);
-    Bot.prototype.sendToSlack.should.have.been.calledWithExactly(author, channel, formattedText);
+    this.bot.sendToSlack.should.have.been.calledWithExactly(author, channel, formattedText);
   });
 
   it('should send actions to slack', function() {
-    var channel = '#channel';
-    var author = 'user';
-    var text = 'hi';
-    var formattedText = '_hi_';
-    var message = {};
+    const channel = '#channel';
+    const author = 'user';
+    const text = 'hi';
+    const formattedText = '_hi_';
+    const message = {};
     this.bot.ircClient.emit('action', author, channel, text, message);
-    Bot.prototype.sendToSlack.should.have.been.calledWithExactly(author, channel, formattedText);
+    this.bot.sendToSlack.should.have.been.calledWithExactly(author, channel, formattedText);
   });
 
   it('should join channels when invited', function() {
-    var channel = '#irc';
-    var author = 'user';
+    const channel = '#irc';
+    const author = 'user';
+    this.debugStub.reset();
     this.bot.ircClient.emit('invite', channel, author);
-    var firstCall = this.debugSpy.getCall(0);
+    const firstCall = this.debugStub.getCall(0);
     firstCall.args[0].should.equal('Received invite:');
     firstCall.args[1].should.equal(channel);
     firstCall.args[2].should.equal(author);
 
     ClientStub.prototype.join.should.have.been.calledWith(channel);
-    var secondCall = this.debugSpy.getCall(1);
+    const secondCall = this.debugStub.getCall(1);
     secondCall.args[0].should.equal('Joining channel:');
     secondCall.args[1].should.equal(channel);
   });
 
   it('should not join channels that aren\'t in the channel mapping', function() {
-    var channel = '#wrong';
-    var author = 'user';
+    const channel = '#wrong';
+    const author = 'user';
+    this.debugStub.reset();
     this.bot.ircClient.emit('invite', channel, author);
-    var firstCall = this.debugSpy.getCall(0);
+    const firstCall = this.debugStub.getCall(0);
     firstCall.args[0].should.equal('Received invite:');
     firstCall.args[1].should.equal(channel);
     firstCall.args[2].should.equal(author);
 
     ClientStub.prototype.join.should.not.have.been.called;
-    var secondCall = this.debugSpy.getCall(1);
+    const secondCall = this.debugStub.getCall(1);
     secondCall.args[0].should.equal('Channel not found in config, not joining:');
     secondCall.args[1].should.equal(channel);
   });

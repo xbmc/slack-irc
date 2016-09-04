@@ -1,0 +1,8 @@
+{
+  "extends": "webkom",
+  "parser": "babel-eslint",
+  "env": {
+    "mocha": true,
+    "node": true
+  }
+}
