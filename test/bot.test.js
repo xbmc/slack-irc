@@ -1,29 +1,40 @@
-/* jshint expr: true */
-var chai = require('chai');
-var sinonChai = require('sinon-chai');
-var sinon = require('sinon');
-var rewire = require('rewire');
-var irc = require('irc');
-var Bot = rewire('../lib/bot');
-var SlackStub = require('./stubs/slack-stub');
-var ChannelStub = require('./stubs/channel-stub');
-var ClientStub = require('./stubs/irc-client-stub');
-var config = require('./fixtures/single-test-config.json');
+/* eslint-disable prefer-arrow-callback, no-unused-expressions */
+import chai from 'chai';
+import sinon from 'sinon';
+import logger from 'winston';
+import sinonChai from 'sinon-chai';
+import irc from 'irc';
+import Bot from '../lib/bot';
+import SlackStub from './stubs/slack-stub';
+import ChannelStub from './stubs/channel-stub';
+import ClientStub from './stubs/irc-client-stub';
+import config from './fixtures/single-test-config.json';
 
 chai.should();
 chai.use(sinonChai);
 
 describe('Bot', function() {
-  before(function() {
-    irc.Client = ClientStub;
-    Bot.__set__('Slack', SlackStub);
+  const sandbox = sinon.sandbox.create({
+    useFakeTimers: false,
+    useFakeServer: false
+  });
+
+  beforeEach(function() {
+    sandbox.stub(logger, 'info');
+    sandbox.stub(logger, 'debug');
+    sandbox.stub(logger, 'error');
+    sandbox.stub(irc, 'Client', ClientStub);
+    ClientStub.prototype.say = sandbox.stub();
+    ClientStub.prototype.send = sandbox.stub();
+    ClientStub.prototype.join = sandbox.stub();
+    SlackStub.prototype.login = sandbox.stub();
     this.bot = new Bot(config);
+    this.bot.slack = new SlackStub();
     this.bot.connect();
   });
 
   afterEach(function() {
-    this.bot.slack.resetStub();
-    ClientStub.prototype.say.reset();
+    sandbox.restore();
     ChannelStub.prototype.postMessage.reset();
   });
 
@@ -32,7 +43,7 @@ describe('Bot', function() {
   });
 
   it('should send correct message objects to slack', function() {
-    var message = {
+    const message = {
       text: 'testmessage',
       username: 'testuser',
       parse: 'full',
@@ -43,8 +54,40 @@ describe('Bot', function() {
     ChannelStub.prototype.postMessage.should.have.been.calledWith(message);
   });
 
+  it('should send messages to slack groups if the bot is in the channel', function() {
+    this.bot.slack.getChannelGroupOrDMByName = () => {
+      const channel = new ChannelStub();
+      delete channel.is_member;
+      channel.is_group = true;
+      return channel;
+    };
+
+    const message = {
+      text: 'testmessage',
+      username: 'testuser',
+      parse: 'full',
+      icon_url: 'http://api.adorable.io/avatars/48/testuser.png'
+    };
+
+    this.bot.sendToSlack(message.username, '#irc', message.text);
+    ChannelStub.prototype.postMessage.should.have.been.calledWith(message);
+  });
+
+  it('should not include an avatar for the bot\'s own messages',
+  function() {
+    const message = {
+      text: 'testmessage',
+      username: config.nickname,
+      parse: 'full',
+      icon_url: undefined
+    };
+
+    this.bot.sendToSlack(message.username, '#irc', message.text);
+    ChannelStub.prototype.postMessage.should.have.been.calledWith(message);
+  });
+
   it('should lowercase channel names before sending to slack', function() {
-    var message = {
+    const message = {
       text: 'testmessage',
       username: 'testuser',
       parse: 'full',
@@ -62,55 +105,112 @@ describe('Bot', function() {
   });
 
   it('should not send messages to slack if the bot isn\'t in the channel', function() {
-    this.bot.slack.returnWrongStubInfo = true;
+    this.bot.slack.getChannelGroupOrDMByName = () => null;
     this.bot.sendToSlack('user', '#irc', 'message');
     ChannelStub.prototype.postMessage.should.not.have.been.called;
   });
 
+  it('should not send messages to slack if the channel\'s is_member is false', function() {
+    this.bot.slack.getChannelGroupOrDMByName = () => {
+      const channel = new ChannelStub();
+      channel.is_member = false;
+      return channel;
+    };
+
+    this.bot.sendToSlack('user', '#irc', 'message');
+    ChannelStub.prototype.postMessage.should.not.have.been.called;
+  });
+
+  it('should replace a bare username if the user is in-channel', function() {
+    const message = {
+      text: 'testuser should be replaced in the message',
+      username: 'testuser',
+      parse: 'full',
+      icon_url: 'http://api.adorable.io/avatars/48/testuser.png'
+    };
+
+    const expected = {
+      ...message,
+      text: '@testuser should be replaced in the message'
+    };
+
+    this.bot.sendToSlack(message.username, '#IRC', message.text);
+    ChannelStub.prototype.postMessage.should.have.been.calledWith(expected);
+  });
+
   it('should send correct messages to irc', function() {
-    var text = 'testmessage';
-    var message = {
+    const text = 'testmessage';
+    const message = {
       channel: 'slack',
-      getBody: function() {
+      getBody() {
         return text;
       }
     };
 
     this.bot.sendToIRC(message);
-    var ircText = '<testuser> ' + text;
+    const ircText = `<testuser> ${text}`;
     ClientStub.prototype.say.should.have.been.calledWith('#irc', ircText);
   });
 
   it('should send /me messages to irc', function() {
-    var text = 'testmessage';
-    var message = {
+    const text = 'testmessage';
+    const message = {
       channel: 'slack',
       subtype: 'me_message',
-      getBody: function() {
+      getBody() {
         return text;
       }
     };
 
     this.bot.sendToIRC(message);
-    var ircText = 'Action: testuser ' + text;
+    const ircText = `Action: testuser ${text}`;
     ClientStub.prototype.say.should.have.been.calledWith('#irc', ircText);
   });
 
   it('should not send messages to irc if the channel isn\'t in the channel mapping',
   function() {
-    this.bot.slack.returnWrongStubInfo = true;
-    var message = {
+    this.bot.slack.getChannelGroupOrDMByID = () => null;
+    const message = {
       channel: 'wrongchannel'
+    };
+
+    this.bot.sendToIRC(message);
+    ClientStub.prototype.say.should.not.have.been.called;
+  });
+
+  it('should send messages from slackbot if slackbot muting is off',
+  function() {
+    const text = 'A message from Slackbot';
+    const message = {
+      user: 'USLACKBOT',
+      getBody() {
+        return text;
+      }
+    };
+
+    this.bot.sendToIRC(message);
+    const ircText = `<testuser> ${text}`;
+    ClientStub.prototype.say.should.have.been.calledWith('#irc', ircText);
+  });
+
+  it('should not send messages from slackbot to irc if slackbot muting is on',
+  function() {
+    this.bot.muteSlackbot = true;
+    const message = {
+      user: 'USLACKBOT',
+      getBody() {
+        return 'A message from Slackbot';
+      }
     };
     this.bot.sendToIRC(message);
     ClientStub.prototype.say.should.not.have.been.called;
   });
 
   it('should parse text from slack when sending messages', function() {
-    var text = '<@USOMEID> <@USOMEID|readable>';
-    var message = {
+    const text = '<@USOMEID> <@USOMEID|readable>';
+    const message = {
       channel: 'slack',
-      getBody: function() {
+      getBody() {
         return text;
       }
     };
@@ -139,10 +239,10 @@ describe('Bot', function() {
   });
 
   it('should hide usernames for commands', function() {
-    var text = '!test command';
-    var message = {
+    const text = '!test command';
+    const message = {
       channel: 'slack',
-      getBody: function() {
+      getBody() {
         return text;
       }
     };

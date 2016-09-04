@@ -1,6 +1,54 @@
 # Changelog
 This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [3.7.6] - 2016-03-03
+## Fixed
+- Upgraded dependencies.
+- Update ESLint config to use preset eslint-config-webkom.
+
+## [3.7.5] - 2016-01-26
+### Fixed
+- Make sure Don doesn't get highlighted for messages containing "don't", fixed by @Ibuprofen.
+
+## [3.7.4] - 2016-01-21
+### Fixed
+- Fix a bug where the bot-in-channel check would fail for private groups.
+
+## [3.7.3] - 2016-01-12
+### Fixed
+- Don't crash when trying to send a message to a Slack channel the bot
+isn't a member of.
+
+## [3.7.2] - 2016-01-12
+### Changed
+- Remove babel-polyfill, use functions available in Node 0.10 and above instead.
+
+## [3.7.1] - 2016-01-10
+### Changed
+- Added babel-polyfill, fixes #70.
+- Updated dependencies.
+
+## [3.7.0] - 2015-12-21
+### Added
+- Valid usernames are now highlighted with an @ before messages are posted to Slack, thanks to @grahamb.
+- `muteSlackbot` option that stops Slackbot messages from being forwarded to IRC, also courtesy of @grahamb.
+- `ircStatusNotices` option that makes slack-irc send status updates to Slack whenever an IRC user
+joins/parts/quits. See README.md for example.
+
+### Changed
+- Upgraded dependencies.
+- Comments are now stripped from JSON configs before they're parsed.
+- Configurations with invalid JSON now throws a ConfigurationError.
+
+## [3.6.2] - 2015-12-01
+### Changed
+- Upgraded dependencies.
+
+## [3.6.1] - 2015-11-18
+### Changed
+- Refactor to use ES2015+ with Babel.
+- Refactor tests.
+
 ## [3.6.0] - 2015-09-14
 ### Added
 - Support for actions from IRC to Slack and vice versa (/me messages).

@@ -1,15 +1,5 @@
-var util = require('util');
-var events = require('events');
-var sinon = require('sinon');
+import { EventEmitter } from 'events';
 
-function ClientStub() {}
+class ClientStub extends EventEmitter {}
 
-util.inherits(ClientStub, events.EventEmitter);
-
-ClientStub.prototype.say = sinon.stub();
-
-ClientStub.prototype.send = sinon.stub();
-
-ClientStub.prototype.join = sinon.stub();
-
-module.exports = ClientStub;
+export default ClientStub;
